@@ -9,14 +9,14 @@ User input (Korean)
   ↓
 Grammar-constrained intent classification  →  one of 11 words
   ↓
-Rule-based parameter extraction           →  action dict
+Deterministic parameter extraction         →  action dict
   ↓
-validate_action()                         →  safety check
+validate_action()                          →  safety check
   ↓
-execute_action()                          →  skill run
+execute_action()                           →  command run
 ```
 
-The model does **not** generate JSON or free text. It outputs a single intent word constrained by a GBNF grammar. Parameter extraction and action construction are deterministic and rule-based.
+The model does **not** generate JSON or free text. It outputs a single intent word constrained by a GBNF grammar. Parameter extraction and action construction are deterministic.
 
 ## Current model
 
@@ -39,11 +39,11 @@ Before fine-tuning, the 135M model's intent classification accuracy is approxima
 
 ## Fine-tuning roadmap
 
-Fine-tuning `HuggingFaceTB/SmolLM2-135M-Instruct` is the primary path to improving accuracy. The grammar-constrained architecture was chosen specifically for this scenario — even a low-accuracy model can be made safe via:
+Fine-tuning `HuggingFaceTB/SmolLM2-135M-Instruct` is the primary path to improving accuracy. The grammar-constrained architecture was chosen specifically for this scenario:
 
 1. **Grammar constraint**: only valid intent words can be generated
 2. **Keyword validation**: the model's output is accepted only when the input contains matching keywords
-3. **Fallback**: if the model's output fails validation, the rule-based router is used
+3. **Deterministic execution**: regardless of classification, all actions run through the same safety layer
 
 ## Future model options
 

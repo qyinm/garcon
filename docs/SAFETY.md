@@ -12,13 +12,13 @@ Write zone         →  home directory, current working directory
 
 Blocked roots are checked recursively — `/etc/passwd` is blocked because it is under `/etc`.
 
-Read skills (`list_files`, `read_file`, `search_text`, `find_large_files`) may access any path under the home directory or current working directory that is not under a blocked root.
+Read commands (`ls`, `cat`, `grep`, `find`) may access any path under the home directory or current working directory that is not under a blocked root.
 
-Write skills (`organize_files`, `rename_files`, `compress_files`, `extract_archive`) are limited to the home directory and current working directory.
+Write commands (`cp`, `mv`, `rm`, `mkdir`, `tar`, `chmod`) are limited to the home directory and current working directory.
 
 ## Preview / confirm / undo
 
-1. **Preview**: high-risk skills call `preview()` before execution, returning a list of planned changes
+1. **Preview**: high-risk commands show a plan before execution, returning a list of planned changes
 2. **Confirm**: the user types `y`, `yes`, `네`, or `응` to proceed
 3. **Undo**: after execution, undo data is recorded. `garcon undo` reverses the last operation
 
@@ -39,11 +39,11 @@ Write skills (`organize_files`, `rename_files`, `compress_files`, `extract_archi
 
 ## Args scanning
 
-All skill arguments are scanned for path values before execution. `validate_action()` iterates over known path keys (`path`, `paths`, `source_dir`, `target_dir`, `archive`, `output`, `source`) recursively through nested dicts and lists.
+All command arguments are scanned for path values before execution. `validate_command()` iterates over known path keys (`path`, `paths`, `source`, `destination`, `archive`, `files`, `name`) recursively through nested dicts and lists.
 
 ## Dangerous token detection
 
-If skill args contain shell-dangerous tokens (`rm -rf`, `sudo`, `chmod -R 777`, etc.), the action is rejected before any skill runs.
+If command args contain shell-dangerous tokens (`rm -rf`, `sudo`, `chmod -R 777`, etc.), the action is rejected before any command runs.
 
 ## Limitation
 

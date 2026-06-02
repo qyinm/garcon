@@ -26,7 +26,7 @@ def convert_trace(trace_path: str, output_path: str):
 
         model_raw = t.get("model_raw") or {}
         action = t.get("action")
-        skill = t.get("skill")
+        command = t.get("command") or action
         args = t.get("args")
         result_type = t.get("result_type")
         message = t.get("message")
@@ -44,8 +44,8 @@ def convert_trace(trace_path: str, output_path: str):
             continue
 
         assistant_parts = []
-        assistant_parts.append(f"Thought: {skill} 작업을 실행합니다.")
-        assistant_parts.append(f"Action: {skill}_command")
+        assistant_parts.append(f"Thought: {command} 작업을 실행합니다.")
+        assistant_parts.append(f"Action: {command}_command")
         if args:
             assistant_parts.append(f"Action Input: {json.dumps(args, ensure_ascii=False)}")
         else:

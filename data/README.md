@@ -27,12 +27,10 @@ Traces are saved to `logs/trace.jsonl` in the current directory. Each line is a 
 |-------|-------------|
 | `ts` | ISO 8601 timestamp |
 | `user_input` | User's Korean natural language input |
-| `router` | Router used: `"slm"` or `"rule"` |
-| `classification` | SLM intent classification (if SLM router used) |
-| `model_raw` | Raw router output dict (action, skill, args) |
+| `classification` | SLM intent classification |
+| `model_raw` | Raw router output dict (action, args) |
 | `action` | Parsed action type |
-| `skill` | Skill name |
-| `args` | Skill arguments |
+| `args` | Command arguments |
 | `blocked` | Whether the action was blocked by safety |
 | `result_type` | Execution result type |
 | `message` | Result message |
@@ -49,7 +47,7 @@ python scripts/convert_trace_to_dataset.py logs/trace.jsonl -o data/training/pro
 
 ### Chat Format (v2 Architecture)
 
-Once the v2 architecture is implemented, traces will contain `Thought`/`Action`/`Action Input` format directly. Training samples will use the standard OpenAI chat format:
+Traces contain `Thought`/`Action`/`Action Input` format directly. Training samples use the standard OpenAI chat format:
 
 ```json
 {
@@ -61,17 +59,14 @@ Once the v2 architecture is implemented, traces will contain `Thought`/`Action`/
 }
 ```
 
-### Current Architecture Format
-
-Before v2 migration, traces use the current router output format. The conversion script maps:
+### Conversion mapping
 
 ```
-Current router output → Training format
+Router output → Training format
   user_input          → messages[1].content (user)
-  model_raw.skill     → Action: {skill}_command (approximated)
-  model_raw.args      → Action Input: {...} (approximated)
+  model_raw.action    → Action: {action}
+  model_raw.args      → Action Input: {...}
   result              → Observation: ... (if multi-step)
-
 ```
 
 ## Data Generation (Synthetic)
@@ -82,4 +77,4 @@ For initial fine-tuning before enough real traces are collected, use:
 python scripts/generate_training_data.py --output data/training/processed/synthetic.jsonl --count 5000
 ```
 
-This generates synthetic Korean → command pairs covering all 25 commands with parameter variations.
+This generates synthetic Korean → command pairs covering all commands with parameter variations.
