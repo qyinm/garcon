@@ -121,3 +121,29 @@ def test_search_log_extension():
     result = route_with_rules("log에서 error 찾아줘")
     assert result["skill"] == "search_text"
     assert result["args"]["include_extensions"] == ["log"]
+
+
+def test_list_files_specific_folder():
+    result = route_with_rules("tests 폴더 목록 보여줘")
+    assert result["action"] == "use_skill"
+    assert result["skill"] == "list_files"
+    assert result["args"]["path"] == "tests"
+
+
+def test_list_files_downloads_still_works():
+    result = route_with_rules("다운로드 폴더 목록 보여줘")
+    assert result["action"] == "use_skill"
+    assert result["skill"] == "list_files"
+    assert result["args"]["path"] == "~/Downloads"
+
+
+def test_organize_tests_folder():
+    result = route_with_rules("tests 폴더 정리해줘")
+    assert result["skill"] == "organize_files"
+    assert result["args"]["source_dir"] == "tests"
+
+
+def test_find_large_files_tests_folder():
+    result = route_with_rules("tests 폴더 큰 파일 찾아줘")
+    assert result["skill"] == "find_large_files"
+    assert result["args"]["path"] == "tests"

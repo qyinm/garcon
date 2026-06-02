@@ -238,6 +238,8 @@ def _join_path(base: str, sub: str) -> str:
 
 
 def _extract_path(text: str) -> str | None:
+    import re
+
     path_hints = {
         "다운로드": "~/Downloads",
         "download": "~/Downloads",
@@ -254,6 +256,10 @@ def _extract_path(text: str) -> str | None:
     for keyword, path in path_hints.items():
         if keyword in text_lower:
             return path
+
+    m = re.search(r"(\S+)\s*폴더", text)
+    if m:
+        return m.group(1)
 
     return None
 
