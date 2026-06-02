@@ -21,7 +21,7 @@ def _run(cmd: str) -> CommandResult:
         return CommandResult(stdout="", stderr=str(e), success=False)
 
 
-def execute_ls(path: str = ".", options: str = "-la") -> CommandResult:
+def execute_ls(path: str = ".", options: str = "-la", **extra) -> CommandResult:
     quoted = shlex.quote(path)
     return _run(f"ls {options} {quoted}")
 
