@@ -1,401 +1,382 @@
+import re
+
 
 def route_with_rules(user_input: str) -> dict:
-    text = user_input.strip().lower()
+    text = user_input.strip()
 
     if not text:
-        return {
-            "action": "ask_clarification",
-            "message": "무슨 작업을 할까요?",
-        }
+        return {"action": "ask_clarification", "message": "무슨 작업을 할까요?"}
 
-    if _match(text, ["안녕", "헬로", "hi", "hello", "시작"]):
-        return {
-            "action": "show_plan",
-            "message": (
-                "garcon이 준비됐어요. 파일 목록, 읽기, 검색, 정리를"
-                " 도와드릴 수 있어요."
-            ),
-        }
+    if _match_any(text, ["종료", "끝", "그만", "exit", "quit", "bye"]):
+        return {"action": "finish", "message": "garcon을 종료합니다."}
 
-    if _match(text, ["종료", "끝", "그만", "꺼줘", "exit", "quit", "bye"]):
-        return {
-            "action": "finish",
-            "message": "garcon을 종료합니다.",
-        }
+    if _match_any(text, ["안녕", "헬로", "hi", "hello", "시작"]):
+        return {"action": "show_plan", "message": "garcon이 준비됐어요."}
 
-    if _match_any(text, [
-        "삭제", "지워", "제거", "rm", "del",
-        "sudo", "관리자", "root",
-        "포맷", "format",
-    ]):
-        return {
-            "action": "refuse",
-            "message": "위험한 요청은 실행할 수 없습니다.",
-        }
+    if _match_any(text, ["sudo", "관리자", "root", "포맷", "format"]):
+        return {"action": "refuse", "message": "위험한 요청은 실행할 수 없습니다."}
 
-    if _match_any(text, [
-        "용량", "큰 파일", "큰파일",
-        "크기", "disk", "disk usage",
-        "공간", "space",
-    ]):
-        path = _extract_path(text) or "."
-        return {
-            "action": "use_skill",
-            "skill": "find_large_files",
-            "args": {"path": path, "limit": 20, "min_size_mb": 100},
-            "risk": "low",
-            "requires_confirmation": False,
-            "message": "큰 파일을 검색합니다.",
-        }
-
-    if _match_any(text, ["정리", "분류", "종류별"]):
-        source = _extract_path(text) or "."
-        return {
-            "action": "use_skill",
-            "skill": "organize_files",
-            "args": {
-                "source_dir": source,
-                "rules": [
-                    {
-                        "extensions": ["pdf"],
-                        "target_dir": _join_path(source, "PDFs"),
-                    },
-                    {
-                        "extensions": ["png", "jpg", "jpeg", "webp"],
-                        "target_dir": _join_path(source, "Images"),
-                    },
-                    {
-                        "extensions": ["zip", "tar", "gz", "bz2"],
-                        "target_dir": _join_path(source, "Archives"),
-                    },
-                ],
-            },
-            "risk": "medium",
-            "requires_confirmation": True,
-            "message": f"{source}를 확장자별로 정리합니다.",
-        }
-
-    if _match_any(text, [
-        "이름 변경", "이름 바꿔", "rename",
-        "파일명 변경", "파일명 바꿔",
-    ]):
-        source = _extract_path(text) or "."
-        pattern = _extract_rename_pattern(text)
-        replacement = _extract_rename_replacement(text)
-        if pattern:
-            return {
-                "action": "use_skill",
-                "skill": "rename_files",
-                "args": {
-                    "source_dir": source,
-                    "pattern": pattern,
-                    "replacement": replacement,
-                },
-                "risk": "medium",
-                "requires_confirmation": True,
-                "message": f"{pattern}을(를) {replacement}(으)로 변경합니다.",
-            }
-        return {
-            "action": "ask_clarification",
-            "message": "어떤 패턴으로 변경할까요? (예: '.txt → .md')",
-        }
-
-    if _match_any(text, ["압축 풀어", "압축 해제", "압축풀기", "압축풀", "extract", "unzip"]):
-        filename = _extract_filename_from_input(text)
-        if not filename:
-            return {
-                "action": "ask_clarification",
-                "message": "어떤 파일의 압축을 풀까요? 압축 파일 이름을 알려주세요.",
-            }
-        return {
-            "action": "use_skill",
-            "skill": "extract_archive",
-            "args": {"archive": filename, "target_dir": "."},
-            "risk": "medium",
-            "requires_confirmation": True,
-            "message": f"{filename}의 압축을 해제합니다.",
-        }
-
-    if _match_any(text, ["zip", "tar", "압축해", "압축 하", "compress"]):
-        filename = _extract_filename_from_input(text)
-        if not filename:
-            return {
-                "action": "ask_clarification",
-                "message": "어떤 파일을 압축할까요? 파일 이름을 알려주세요.",
-            }
-        return {
-            "action": "use_skill",
-            "skill": "compress_files",
-            "args": {"paths": [filename], "output": f"{filename}.zip"},
-            "risk": "medium",
-            "requires_confirmation": True,
-            "message": f"{filename}을 zip으로 압축합니다.",
-        }
-
-    list_patterns = [
-        "목록", "리스트", "파일", "뭐가", "보여줘", "보여 주",
-        "파일들", "list", "ls",
-        "파일 보여줘", "파일 목록",
-        "뭐 있어", "뭐가 있어",
-    ]
-    if _match_any(text, list_patterns):
-        args: dict = {"path": ".", "hidden": False, "detail": False}
-
-        if _match_any(text, ["자세히", "상세", "디테일", "모두", "전부"]):
-            args["detail"] = True
-
-        if _match_any(text, ["숨김", "숨긴", "숨겨진", "dot", "hidden", "모든"]):
-            args["hidden"] = True
-
-        path = _extract_path(text)
-        if path:
-            args["path"] = path
-
-        return {
-            "action": "use_skill",
-            "skill": "list_files",
-            "args": args,
-            "risk": "low",
-            "requires_confirmation": False,
-            "message": "파일 목록을 표시합니다." if not path
-            else f"{path}의 파일 목록을 표시합니다.",
-        }
-
-    read_patterns = [
-        "읽어줘", "읽기", "내용", "보여줘",
-        "파일 내용", "열어줘", "열기",
-        "read", "cat", "보기",
-    ]
-    if _match_any(text, read_patterns):
-        file_path = _extract_path_or_filename(text)
-        if not file_path:
-            return {
-                "action": "ask_clarification",
-                "message": "어떤 파일을 읽을까요? 파일 이름을 알려주세요.",
-            }
-
-        return {
-            "action": "use_skill",
-            "skill": "read_file",
-            "args": {"path": file_path, "max_lines": 100},
-            "risk": "low",
-            "requires_confirmation": False,
-            "message": f"{file_path}의 내용을 읽습니다.",
-        }
-
-    search_patterns = [
-        "찾아줘", "검색", "찾기", "포함된", "포함하는",
-        "search", "find", "grep",
-        "있는 줄", "들어간", "들어있는",
-    ]
-    if _match_any(text, search_patterns):
-        query = _extract_query(text)
-        if not query:
-            return {
-                "action": "ask_clarification",
-                "message": "무슨 내용을 검색할까요? 검색어를 알려주세요.",
-            }
-
-        search_path = _extract_path(text) or "."
-        exts = _extract_extensions(text)
-
-        return {
-            "action": "use_skill",
-            "skill": "search_text",
-            "args": {
-                "path": search_path,
-                "query": query,
-                "include_extensions": exts,
-            },
-            "risk": "low",
-            "requires_confirmation": False,
-            "message": f"'{query}'를 검색합니다.",
-        }
+    cmd = _route_command(text)
+    if cmd:
+        return cmd
 
     return {
         "action": "ask_clarification",
-        "message": "어떤 작업을 할지 조금 더 구체적으로 알려주세요.\n\n"
-        "예: '파일 목록 보여줘', '파일 읽어줘', 'log에서 error 찾아줘', "
-        "'다운로드 폴더 정리해줘'",
+        "message": "어떤 작업을 할지 더 구체적으로 알려주세요.\n"
+        "예: '파일 목록', 'test.txt 내용', 'error 찾아줘', 'py파일 찾아줘'",
     }
 
 
-def _match(text: str, keywords: list[str]) -> bool:
-    return text.strip() in keywords
-
-
-def _match_any(text: str, keywords: list[str]) -> bool:
-    for kw in keywords:
-        if kw in text:
-            return True
-    return False
-
-
-def _join_path(base: str, sub: str) -> str:
-    if base in (".", "~"):
-        return f"{base}/{sub}"
-    return f"{base}/{sub}"
+def _route_command(text: str) -> dict | None:
+    result = _try_head_tail(text)
+    if result:
+        return result
+    result = _try_wc(text)
+    if result:
+        return result
+    result = _try_ls(text)
+    if result:
+        return result
+    result = _try_cat(text)
+    if result:
+        return result
+    result = _try_grep(text)
+    if result:
+        return result
+    result = _try_find(text)
+    if result:
+        return result
+    result = _try_rm(text)
+    if result:
+        return result
+    result = _try_cp_mv(text)
+    if result:
+        return result
+    result = _try_mkdir(text)
+    if result:
+        return result
+    result = _try_tar(text)
+    if result:
+        return result
+    result = _try_chmod(text)
+    if result:
+        return result
+    result = _try_sort_uniq_diff(text)
+    if result:
+        return result
+    result = _try_tree(text)
+    if result:
+        return result
+    result = _try_cd(text)
+    if result:
+        return result
+    return None
 
 
 def _extract_path(text: str) -> str | None:
-    import re
-
     path_hints = {
-        "다운로드": "~/Downloads",
-        "download": "~/Downloads",
-        "홈": "~",
-        "home": "~",
-        "문서": "~/Documents",
-        "documents": "~/Documents",
-        "데스크탑": "~/Desktop",
-        "바탕화면": "~/Desktop",
-        "desktop": "~/Desktop",
+        "다운로드": "~/Downloads", "download": "~/Downloads",
+        "홈": "~", "home": "~",
+        "문서": "~/Documents", "documents": "~/Documents",
+        "데스크탑": "~/Desktop", "바탕화면": "~/Desktop", "desktop": "~/Desktop",
     }
-
-    text_lower = text.lower()
-    for keyword, path in path_hints.items():
-        if keyword in text_lower:
-            return path
+    tl = text.lower()
+    for kw, p in path_hints.items():
+        if kw in tl:
+            return p
 
     m = re.search(r"(\S+)\s*폴더", text)
     if m:
         return m.group(1)
 
+    m = re.search(r"[\"']([^\"']+)[\"']", text)
+    if m and (".txt" in m.group(1) or ".py" in m.group(1) or ".log" in m.group(1) or "/" in m.group(1)):
+        return m.group(1)
+
     return None
 
 
-def _extract_path_or_filename(text: str) -> str | None:
-    import re
-
-    patterns = [
-        r"[\"']([^\"']+)[\"']",
-        r"`([^`]+)`",
-        r"(?:파일\s*:?\s*)(\S+)",
-        r"(?:읽[을아]줘\s*)(\S+)",
-        r"(?:열[어아]줘\s*)(\S+)",
-    ]
-
-    for pat in patterns:
-        m = re.search(pat, text)
-        if m:
-            return m.group(1)
-
+def _extract_filename(text: str) -> str | None:
+    m = re.search(r"[\"']([^\"']+)[\"']", text)
+    if m:
+        return m.group(1)
     words = text.split()
     for w in words:
-        if "." in w and not w.startswith("-"):
-            return w
-
+        c = w.strip(".,!?")
+        if "." in c and not c.startswith(("-", "–", "—")):
+            return c
     return None
+
+
+def _try_ls(text: str) -> dict | None:
+    if not _match_any(text, ["목록", "리스트", "파일", "뭐가", "list", "ls", "파일 보여줘", "파일 목록"]):
+        return None
+    path = _extract_path(text) or "."
+    return {
+        "action": "use_skill", "skill": "list_files",
+        "args": {"path": path, "detail": False, "hidden": False},
+        "risk": "low", "requires_confirmation": False,
+        "message": f"{path}의 파일 목록을 표시합니다.",
+    }
+
+
+def _try_cat(text: str) -> dict | None:
+    if not _match_any(text, ["읽어줘", "읽기", "내용", "열어줘", "열기", "read", "cat", "보기"]):
+        return None
+    f = _extract_filename(text)
+    if not f:
+        return {"action": "ask_clarification", "message": "어떤 파일을 읽을까요? 파일 이름을 알려주세요."}
+    return {
+        "action": "use_skill", "skill": "read_file",
+        "args": {"path": f, "max_lines": 100},
+        "risk": "low", "requires_confirmation": False,
+        "message": f"{f}의 내용을 읽습니다.",
+    }
+
+
+def _try_grep(text: str) -> dict | None:
+    if not _match_any(text, ["찾아줘", "검색", "찾기", "포함된", "포함하는", "search", "grep"]):
+        return None
+    query = _extract_query(text)
+    if not query:
+        return {"action": "ask_clarification", "message": "무슨 내용을 검색할까요? 검색어를 알려주세요."}
+    path = _extract_path(text) or "."
+    return {
+        "action": "use_skill", "skill": "search_text",
+        "args": {"path": path, "query": query},
+        "risk": "low", "requires_confirmation": False,
+        "message": f"'{query}'를 검색합니다.",
+    }
+
+
+def _try_find(text: str) -> dict | None:
+    if not _match_any(text, ["파일 찾아줘", "파일 찾기", "파일검색", ".py 파일", ".txt 파일", "확장자"]):
+        return None
+    path = _extract_path(text) or "."
+    m = re.search(r"\.(\w+)\s*파일", text)
+    ext = f"*.{m.group(1)}" if m else ""
+    return {
+        "action": "use_skill", "skill": "find_large_files",
+        "args": {"path": path, "name": ext, "limit": 20},
+        "risk": "low", "requires_confirmation": False,
+        "message": f"{path}에서 {ext} 파일을 검색합니다. " if ext else f"{path}에서 파일을 검색합니다.",
+    }
+
+
+def _try_wc(text: str) -> dict | None:
+    if not _match_any(text, ["몇 줄", "줄 수", "라인 수", "line", "줄이야"]):
+        return None
+    f = _extract_filename(text)
+    if not f:
+        return None
+    return {
+        "action": "use_skill", "skill": "wc_command",
+        "args": {"path": f, "options": "-l"},
+        "risk": "low", "requires_confirmation": False,
+    }
+
+
+def _try_head_tail(text: str) -> dict | None:
+    is_tail = _match_any(text, ["마지막", "끝", "tail"])
+    is_head = not is_tail and _match_any(text, ["처음", "앞", "head"])
+    if not is_head and not is_tail:
+        return None
+    f = _extract_filename(text)
+    if not f:
+        return None
+    m = re.search(r"(\d+)\s*줄", text)
+    lines = int(m.group(1)) if m else 10
+    skill = "tail_command" if is_tail else "head_command"
+    return {
+        "action": "use_skill", "skill": skill,
+        "args": {"path": f, "lines": lines},
+        "risk": "low", "requires_confirmation": False,
+    }
+
+
+def _try_rm(text: str) -> dict | None:
+    if not _match_any(text, ["삭제", "지워", "제거", "del", "rm "]):
+        return None
+    f = _extract_filename(text)
+    if not f:
+        return None
+    return {
+        "action": "use_skill", "skill": "rm_command",
+        "args": {"path": f},
+        "risk": "high", "requires_confirmation": True,
+    }
+
+
+def _try_cp_mv(text: str) -> dict | None:
+    is_cp = _match_any(text, ["복사", "copy", "cp "])
+    is_mv = not is_cp and _match_any(text, ["이동", "옮겨", "mv ", "move", "이름 변경", "rename"])
+    if not is_cp and not is_mv:
+        return None
+
+    words = text.split()
+    filenames = [w.strip(".,!?") for w in words if "." in w and not w.startswith(("-", "–", "—"))]
+
+    if is_cp:
+        if len(filenames) >= 2:
+            return {
+                "action": "use_skill", "skill": "cp_command",
+                "args": {"source": filenames[0], "destination": filenames[1]},
+                "risk": "medium", "requires_confirmation": True,
+            }
+        if len(filenames) == 1:
+            return {
+                "action": "use_skill", "skill": "cp_command",
+                "args": {"source": filenames[0], "destination": f"{filenames[0]}.backup"},
+                "risk": "medium", "requires_confirmation": True,
+            }
+        return {"action": "ask_clarification", "message": "어떤 파일을 복사할까요?"}
+
+    if is_mv:
+        if len(filenames) >= 2:
+            return {
+                "action": "use_skill", "skill": "mv_command",
+                "args": {"source": filenames[0], "destination": filenames[1]},
+                "risk": "medium", "requires_confirmation": True,
+            }
+        if len(filenames) == 1:
+            return {
+                "action": "use_skill", "skill": "mv_command",
+                "args": {"source": filenames[0]},
+                "risk": "medium", "requires_confirmation": True,
+            }
+        return {"action": "ask_clarification", "message": "어떤 파일을 이동할까요?"}
+    return None
+
+
+def _try_mkdir(text: str) -> dict | None:
+    if not _match_any(text, ["폴더 만들어", "디렉토리 만들어", "mkdir", "새 폴더", "만들어줘"]):
+        return None
+    path = _extract_path(text)
+    if not path:
+        return {"action": "ask_clarification", "message": "어떤 폴더를 만들까요?"}
+    return {
+        "action": "use_skill", "skill": "mkdir_command",
+        "args": {"path": path},
+        "risk": "low", "requires_confirmation": False,
+    }
+
+
+def _try_tar(text: str) -> dict | None:
+    is_extract = _match_any(text, ["압축 풀어", "압축 해제", "압축풀기", "extract", "unzip"])
+    is_compress = not is_extract and _match_any(text, ["압축해", "압축 하", "zip", "tar", "compress"])
+    if not is_extract and not is_compress:
+        return None
+    f = _extract_filename(text)
+    if not f:
+        return {"action": "ask_clarification", "message": "어떤 파일을 압축/해제할까요?"}
+    if is_extract:
+        return {
+            "action": "use_skill", "skill": "tar_command",
+            "args": {"operation": "extract", "archive": f},
+            "risk": "medium", "requires_confirmation": True,
+        }
+    return {
+        "action": "use_skill", "skill": "tar_command",
+        "args": {"operation": "compress", "archive": f"{f}.tar.gz", "files": f},
+        "risk": "medium", "requires_confirmation": True,
+    }
+
+
+def _try_chmod(text: str) -> dict | None:
+    m = re.search(r"chmod\s+(\d+)\s+(\S+)", text)
+    if not m:
+        return None
+    return {
+        "action": "use_skill", "skill": "chmod_command",
+        "args": {"mode": m.group(1), "path": m.group(2)},
+        "risk": "high", "requires_confirmation": True,
+    }
+
+
+def _try_sort_uniq_diff(text: str) -> dict | None:
+    if _match_any(text, ["정렬", "sort"]):
+        f = _extract_filename(text)
+        if not f:
+            return None
+        return {"action": "use_skill", "skill": "sort_command", "args": {"path": f}, "risk": "low", "requires_confirmation": False}
+    if _match_any(text, ["중복 제거", "중복 제거해", "uniq"]):
+        f = _extract_filename(text)
+        if not f:
+            return None
+        return {"action": "use_skill", "skill": "uniq_command", "args": {"path": f}, "risk": "low", "requires_confirmation": False}
+    if _match_any(text, ["비교", "diff", "차이"]):
+        f = _extract_filename(text)
+        if not f:
+            return None
+        return {"action": "use_skill", "skill": "diff_command", "args": {"path1": f, "path2": ""}, "risk": "low", "requires_confirmation": False}
+    return None
+
+
+def _try_tree(text: str) -> dict | None:
+    if not _match_any(text, ["트리", "tree", "구조"]):
+        return None
+    path = _extract_path(text) or "."
+    return {
+        "action": "use_skill", "skill": "tree_command",
+        "args": {"path": path},
+        "risk": "low", "requires_confirmation": False,
+    }
+
+
+def _try_cd(text: str) -> dict | None:
+    if not _match_any(text, ["이동", "cd ", "들어가", "폴더 이동"]):
+        return None
+    path = _extract_path(text)
+    if not path:
+        return None
+    return {
+        "action": "use_skill", "skill": "cd_command",
+        "args": {"path": path},
+        "risk": "low", "requires_confirmation": False,
+    }
+
+
+def _match_any(text: str, keywords: list[str]) -> bool:
+    tl = text.lower()
+    for kw in keywords:
+        if kw.lower() in tl:
+            return True
+    return False
 
 
 def _extract_query(text: str) -> str | None:
-    import re
-
     m = re.search(r"[\"']([^\"']+)[\"']", text)
     if m:
         return m.group(1)
-
     m = re.search(r"`([^`]+)`", text)
     if m:
         return m.group(1)
-
-    stop_words = {
-        "줄", "것", "파일", "파일을", "파일이", "파일의",
-        "내용", "거", "목록", "리스트",
-    }
-
+    stop = {"줄", "것", "파일", "파일을", "파일이", "파일의", "내용", "거", "목록", "리스트"}
     m = re.search(r"(\S+)\s*(?:포함된|포함하는|들어간|들어있는)", text)
-    if m and m.group(1) not in stop_words:
+    if m and m.group(1) not in stop:
         return m.group(1)
-
-    m = re.search(r"(\S+)\s*(?:찾아줘|찾기|검색|찾아|서치)", text)
-    if m and m.group(1) not in stop_words:
+    m = re.search(r"(\S+)\s*(?:찾아줘|찾기|검색|찾아)", text)
+    if m and m.group(1) not in stop:
         return m.group(1)
-
-    m = re.search(r"(?:찾아줘|찾기|검색|찾아|서치)\s*(\S+)", text)
-    if m and m.group(1) not in stop_words:
+    m = re.search(r"(?:찾아줘|찾기|검색|찾아)\s*(\S+)", text)
+    if m and m.group(1) not in stop:
         return m.group(1)
-
     m = re.search(r"(?:포함된|포함하는|들어간|들어있는)\s*(\S+)", text)
-    if m and m.group(1) not in stop_words:
+    if m and m.group(1) not in stop:
         return m.group(1)
-
     return None
-
-
-def _extract_filename_from_input(text: str) -> str | None:
-    import re
-
-    m = re.search(r"[\"']([^\"']+)[\"']", text)
-    if m:
-        return m.group(1)
-
-    words = text.split()
-    for w in words:
-        w_clean = w.strip(".,!?")
-        if "." in w_clean and not w_clean.startswith(("-", "–", "—")):
-            return w_clean
-
-    return None
-
-
-def _extract_rename_pattern(text: str) -> str | None:
-    import re
-
-    m = re.search(r"[\"']([^\"']+)[\"']", text)
-    if m:
-        parts = m.group(1).split("→")
-        if len(parts) >= 1:
-            return parts[0].strip()
-        return m.group(1)
-
-    m = re.search(r"(\.[a-zA-Z0-9]+)\s*(?:→|->|에서|을|를)", text)
-    if m:
-        return m.group(1).strip()
-
-    return None
-
-
-def _extract_rename_replacement(text: str) -> str | None:
-    import re
-
-    m = re.search(r"[\"']([^\"']+)[\"']", text)
-    if m:
-        parts = m.group(1).split("→")
-        if len(parts) >= 2:
-            return parts[1].strip()
-        return ""
-
-    m = re.search(r"(?:→|->)\s*(\S+)", text)
-    if m:
-        return m.group(1).strip()
-
-    m = re.search(r"(?:으로|로)\s*(\S+)", text)
-    if m:
-        return m.group(1).strip()
-
-    return ""
 
 
 def _extract_extensions(text: str) -> list[str] | None:
-    import re
-
     m = re.search(r"(\w+)(?:에서|에)", text)
-    if m:
-        ext_text = m.group(1).lower()
-        ext_map = {
-            "파이썬": ["py"],
-            "python": ["py"],
-            "로그": ["log", "txt"],
-            "log": ["log"],
-            "텍스트": ["txt"],
-            "text": ["txt"],
-            "자바스크립트": ["js", "ts"],
-            "javascript": ["js", "ts"],
-            "타입스크립트": ["ts"],
-            "typescript": ["ts"],
-        }
-        if ext_text in ext_map:
-            return ext_map[ext_text]
-
-    return None
+    if not m:
+        return None
+    ext_text = m.group(1).lower()
+    ext_map = {
+        "파이썬": ["py"], "python": ["py"],
+        "로그": ["log", "txt"], "log": ["log"],
+        "텍스트": ["txt"], "text": ["txt"],
+        "자바스크립트": ["js", "ts"], "javascript": ["js", "ts"],
+        "타입스크립트": ["ts"], "typescript": ["ts"],
+    }
+    return ext_map.get(ext_text)
