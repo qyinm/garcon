@@ -54,6 +54,9 @@ class CompressFilesSkill(Skill):
                 ok=False, message="출력 파일 경로가 지정되지 않았습니다."
             )
 
+        if not output.name.endswith(".zip"):
+            output = output.with_suffix(".zip")
+
         if output.exists():
             return SkillResult(ok=False, message=f"이미 존재하는 파일입니다: {output}")
 

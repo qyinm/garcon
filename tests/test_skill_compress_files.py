@@ -59,3 +59,28 @@ class TestCompressFilesSkill:
             assert result.undo is not None
             assert result.undo["type"] == "delete_archive"
             assert result.undo["items"][0]["path"] == str(output.resolve())
+
+    def test_auto_append_zip_extension(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "a.txt").write_text("hello")
+            output = Path(tmp, "archive")
+            skill = CompressFilesSkill()
+            result = skill.execute({
+                "paths": [str(Path(tmp, "a.txt"))],
+                "output": str(output),
+            })
+            assert result.ok is True
+            assert Path(tmp, "archive.zip").exists()
+            assert not output.exists()
+
+    def test_preserve_explicit_zip_extension(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "a.txt").write_text("hello")
+            output = Path(tmp, "my.zip")
+            skill = CompressFilesSkill()
+            result = skill.execute({
+                "paths": [str(Path(tmp, "a.txt"))],
+                "output": str(output),
+            })
+            assert result.ok is True
+            assert Path(tmp, "my.zip").exists()
