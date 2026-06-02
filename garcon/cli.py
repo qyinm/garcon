@@ -39,103 +39,12 @@ app.add_typer(model_app, name="model")
 console = Console()
 
 
-COMMAND_ALIASES = {
-    "ls": "ls_command", "cat": "cat_command", "head": "head_command",
-    "tail": "tail_command", "wc": "wc_command", "grep": "grep_command",
-    "find": "find_command", "mkdir": "mkdir_command", "rm": "rm_command",
-    "cp": "cp_command", "mv": "mv_command", "cd": "cd_command",
-    "chmod": "chmod_command", "tar": "tar_command", "zip": "tar_command",
-    "unzip": "tar_command", "sort": "sort_command", "uniq": "uniq_command",
-    "diff": "diff_command", "tree": "tree_command",
-    "list": "ls_command", "delete": "rm_command", "copy": "cp_command",
-    "move": "mv_command", "search": "grep_command", "compare": "diff_command",
-    "rename": "mv_command", "md": "mkdir_command",
-}
-
-
-def _parse_direct(command: str, rest: str) -> tuple[str, dict] | None:
-    action = COMMAND_ALIASES.get(command)
-    if not action:
-        return None
-
-    from garcon.commands import COMMANDS
-    fn = COMMANDS.get(action)
-    if not fn:
-        return None
-
-    import inspect
-    sig = inspect.signature(fn)
-    params: dict[str, str | int | bool] = {}
-    rest = rest.strip()
-
-    for name, param in sig.parameters.items():
-        if name == "path" and rest and not rest.startswith("-"):
-            params["path"] = rest.split()[0]
-            rest = rest[len(params["path"]):].strip()
-        elif name == "source" and rest:
-            parts = rest.split(None, 1)
-            if parts:
-                params["source"] = parts[0]
-                rest = rest[len(parts[0]):].strip()
-        elif name == "destination" and rest:
-            parts = rest.split(None, 1)
-            if parts:
-                params["destination"] = parts[0]
-                rest = rest[len(parts[0]):].strip()
-        elif name == "pattern" and rest:
-            parts = rest.split(None, 1)
-            if parts:
-                params["pattern"] = parts[0]
-                rest = rest[len(parts[0]):].strip()
-        elif name == "name" and rest:
-            parts = rest.split(None, 1)
-            if parts:
-                params["name"] = parts[0]
-                rest = rest[len(parts[0]):].strip()
-        elif name == "options" and rest:
-            params["options"] = rest.strip()
-        elif name == "lines" and rest:
-            try:
-                params["lines"] = int(rest.split()[0])
-                rest = ""
-            except (ValueError, IndexError):
-                params["lines"] = 10
-        elif name == "mode" and rest:
-            parts = rest.split(None, 1)
-            if parts:
-                params["mode"] = parts[0]
-                rest = ""
-        elif name == "archive" and rest:
-            parts = rest.split(None, 1)
-            if parts:
-                params["archive"] = parts[0]
-                rest = rest[len(parts[0]):].strip()
-        elif name == "files" and rest:
-            params["files"] = rest.strip()
-            rest = ""
-        elif name == "recursive":
-            params["recursive"] = "-r" in rest or "-rf" in rest or "--recursive" in rest
-
-    return action, params
-
-
 def _parse_nl(user_input: str) -> dict | None:
     mp = model_path()
-    if mp:
-        from garcon.model_router import router as model_router
-        result = model_router(user_input, mp)
-        if result:
-            return result
-
-    parts = user_input.strip().split(None, 1)
-    if not parts:
+    if not mp:
         return None
-    parsed = _parse_direct(parts[0], parts[1] if len(parts) > 1 else "")
-    if parsed:
-        action, params = parsed
-        return {"action": action, "params": params}
-
-    return None
+    from garcon.model_router import router as model_router
+    return model_router(user_input, mp)
 
 
 def handle(user_input: str) -> bool:
