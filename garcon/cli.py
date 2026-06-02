@@ -40,26 +40,26 @@ console = Console()
 
 def _parse_nl(user_input: str) -> list[dict]:
     from garcon.router import route_with_rules
-    from garcon.parser import parse_action
 
     raw = route_with_rules(user_input)
-    action, err = parse_action(raw)
-    if err:
+    if not raw or raw.get("action") != "use_skill":
         return []
-    if action.action == "use_skill":
-        cmd_map = {
-            "list_files": "ls_command",
-            "read_file": "cat_command",
-            "search_text": "grep_command",
-            "find_large_files": "find_command",
-            "compress_files": "tar_command",
-            "extract_archive": "tar_command",
-            "organize_files": "mv_command",
-            "rename_files": "mv_command",
-        }
-        cmd = cmd_map.get(action.skill, action.skill)
-        return [{"action": cmd, "params": action.args}]
-    return []
+
+    skill = raw.get("skill", "")
+    params = raw.get("args", {})
+
+    cmd_map = {
+        "list_files": "ls_command",
+        "read_file": "cat_command",
+        "search_text": "grep_command",
+        "find_large_files": "find_command",
+        "compress_files": "tar_command",
+        "extract_archive": "tar_command",
+        "organize_files": "mv_command",
+        "rename_files": "mv_command",
+    }
+    cmd = cmd_map.get(skill, skill)
+    return [{"action": cmd, "params": params}]
 
 
 def handle(user_input: str) -> bool:
