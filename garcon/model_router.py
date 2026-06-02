@@ -233,7 +233,10 @@ class ModelRouter:
         classified = _post_process_classification(user_input, raw)
         if classified is None:
             return None
-        return _build_action(user_input, classified)
+        result = _build_action(user_input, classified)
+        if result is not None:
+            result["_classification"] = classified
+        return result
 
 
 _model_router_instance: ModelRouter | None = None

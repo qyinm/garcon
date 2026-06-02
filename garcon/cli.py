@@ -16,6 +16,7 @@ from garcon.executor import (
     EXECUTOR_RESULT_REFUSED,
     execute_action,
 )
+from garcon.logger import get_recent as get_log_entries, log_entry
 from garcon.model_manager import (
     MODEL_NAME,
     download_model,
@@ -43,26 +44,31 @@ console = Console()
 
 def handle(user_input: str) -> bool:
     mp = model_path()
+    router_source = "rule"
+    classification = None
     if mp:
-        result = model_router_fn(user_input, mp)
-        if result is not None:
-            raw = result
-        else:
-            raw = route_with_rules(user_input)
-    else:
+        slm_result = model_router_fn(user_input, mp)
+        if slm_result is not None:
+            router_source = "slm"
+            classification = slm_result.pop("_classification", None) if isinstance(slm_result, dict) else None
+            raw = slm_result
+    if router_source != "slm":
         raw = route_with_rules(user_input)
 
     action, err = parse_action(raw)
     if err:
         console.print(f"[red]오류: {err}[/red]")
+        log_entry(user_input=user_input, router=router_source, classification=classification)
         return True
 
     ok, reason = validate_action(action)
     if not ok:
         console.print(f"[red]차단됨: {reason}[/red]")
+        log_entry(user_input=user_input, router=router_source, classification=classification, action=action.action if action else None)
         return True
 
     result = execute_action(action, confirmed=False)
+    log_entry(user_input=user_input, router=router_source, classification=classification, action=action.action if action else None, skill=action.skill if action else None, args=action.args if action and action.args else None, risk=action.risk if action else None, result_type=result.get("type"), message=result.get("message"))
 
     result_type = result.get("type")
 
@@ -320,6 +326,37 @@ def _execute_undo(entry: dict):
                     shutil.rmtree(str(path))
                 else:
                     path.unlink()
+
+
+@app.command()
+def log(limit: int = typer.Option(20, "--limit", "-l", help="Number of recent entries")):
+    """Show recent session log."""
+    entries = get_log_entries(limit)
+    if not entries:
+        console.print("[yellow]로그가 없습니다.[/yellow]")
+        return
+
+    table = Table(show_header=True)
+    table.add_column("시간")
+    table.add_column("라우터")
+    table.add_column("분류")
+    table.add_column("액션")
+    table.add_column("스킬")
+    table.add_column("결과")
+    table.add_column("메시지")
+
+    for e in reversed(entries):
+        router_str = "[cyan]SLM[/cyan]" if e.get("router") == "slm" else "[dim]rule[/dim]"
+        table.add_row(
+            e.get("ts", "")[-8:],
+            router_str,
+            e.get("classification") or "-",
+            e.get("action") or "-",
+            e.get("skill") or "-",
+            e.get("result") or "-",
+            (e.get("message") or "")[:30],
+        )
+    console.print(table)
 
 
 @model_app.command()
