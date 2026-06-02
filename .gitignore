@@ -10,3 +10,6 @@ build/
 
 # Generated training data
 data/training/processed/
+
+# Fine-tuning checkpoints
+fine_tuning/output/
