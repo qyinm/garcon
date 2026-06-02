@@ -31,6 +31,7 @@ package = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+markers = ["slow: marks tests that download the model (~105 MB)"]
 
 [project.optional-dependencies]
 model = [

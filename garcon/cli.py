@@ -19,6 +19,8 @@ from garcon.executor import (
 from garcon.logger import get_recent as get_log_entries, log_entry
 from garcon.model_manager import (
     MODEL_NAME,
+    MODEL_MANIFEST,
+    checksum_status,
     download_model,
     is_downloaded,
     model_path,
@@ -392,9 +394,18 @@ def status():
     """Show model download status."""
     if is_downloaded():
         size_mb = model_size() / 1024 / 1024
+        cs = checksum_status()
+        cs_display = {
+            "verified": "[green]확인됨[/green]",
+            "unknown": "[yellow]알 수 없음[/yellow]",
+            "mismatch": "[red]불일치[/red]",
+            "not_downloaded": "[dim]-[/dim]",
+        }.get(cs, cs)
         console.print("[green]사용 가능[/green]")
         console.print(f"  경로: {model_path()}")
         console.print(f"  크기: {size_mb:.0f} MB")
+        console.print(f"  SHA256: {cs_display}")
+        console.print(f"  레포: {MODEL_MANIFEST['repo']}")
     else:
         console.print("[yellow]모델이 다운로드되지 않았습니다.[/yellow]")
         console.print("  다음 명령어로 다운로드: [bold]garcon model download[/bold]")

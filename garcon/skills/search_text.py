@@ -3,6 +3,8 @@ from pathlib import Path
 from garcon.skills.base import Skill, SkillResult
 
 DEFAULT_MAX_RESULTS = 50
+MAX_FILE_SIZE = 10 * 1024 * 1024
+MAX_SCANNED_FILES = 5000
 
 TEXT_EXTS = {
     ".py", ".js", ".ts", ".jsx", ".tsx", ".rb", ".go", ".rs",
@@ -31,10 +33,14 @@ def _is_text_file(path: Path, include_extensions: list[str] | None = None) -> bo
         return True
 
     try:
-        path.read_bytes()[:1024]
-        return True
+        sample = path.read_bytes()[:4096]
     except Exception:
         return False
+
+    if b"\x00" in sample:
+        return False
+
+    return True
 
 
 class SearchTextSkill(Skill):
@@ -88,12 +94,26 @@ class SearchTextSkill(Skill):
             except Exception:
                 targets = []
 
+        scanned = 0
         for target in targets:
+            if scanned >= MAX_SCANNED_FILES:
+                break
+
             if not target.is_file():
+                continue
+
+            try:
+                size = target.stat().st_size
+            except OSError:
+                continue
+
+            if size > MAX_FILE_SIZE:
                 continue
 
             if not _is_text_file(target, include_extensions):
                 continue
+
+            scanned += 1
 
             try:
                 text = target.read_text(encoding="utf-8", errors="replace")
