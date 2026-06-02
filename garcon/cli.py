@@ -1,7 +1,4 @@
 
-import json
-import time
-from datetime import datetime
 from pathlib import Path
 
 import typer
@@ -14,14 +11,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from garcon.executor import (
-    EXECUTOR_RESULT_CLARIFICATION,
-    EXECUTOR_RESULT_NEEDS_CONFIRMATION,
-    EXECUTOR_RESULT_OK,
-    EXECUTOR_RESULT_REFUSED,
-    execute_action,
-)
-from garcon.logger import get_recent as get_log_entries, log_entry
+from garcon.executor import execute_single_step
 from garcon.model_manager import (
     MODEL_NAME,
     MODEL_MANIFEST,
@@ -32,15 +22,13 @@ from garcon.model_manager import (
     model_size,
     remove_model,
 )
-from garcon.model_router import router as model_router_fn
-from garcon.parser import parse_action
-from garcon.router import route_with_rules
-from garcon.safety import validate_action
-from garcon.undo import get_latest, pop_latest
+from garcon.undo import TRASH_DIR, undo_last
+from garcon.undo import trash_list as undo_trash_list
+from garcon.undo import trash_restore as undo_trash_restore
 
 app = typer.Typer(
     name="garcon",
-    help="Tiny local terminal coworker",
+    help="Tiny local terminal coworker — Linux commands + agent loop",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
@@ -49,273 +37,63 @@ app.add_typer(model_app, name="model")
 
 console = Console()
 
-DEV_MODE: bool = False
 
+def _parse_nl(user_input: str) -> list[dict]:
+    from garcon.router import route_with_rules
+    from garcon.parser import parse_action
 
-@app.callback(invoke_without_command=True)
-def set_dev_mode(
-    ctx: typer.Context,
-    dev: bool = typer.Option(False, "--dev", help="개발자 모드: 로컬 logs/trace.jsonl에 trace 저장"),
-):
-    global DEV_MODE
-    DEV_MODE = dev
-
-
-def _write_trace(entry: dict):
-    log_dir = Path("logs")
-    log_dir.mkdir(parents=True, exist_ok=True)
-    trace_file = log_dir / "trace.jsonl"
-    with open(trace_file, "a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    raw = route_with_rules(user_input)
+    action, err = parse_action(raw)
+    if err:
+        return []
+    if action.action == "use_skill":
+        cmd_map = {
+            "list_files": "ls_command",
+            "read_file": "cat_command",
+            "search_text": "grep_command",
+            "find_large_files": "find_command",
+            "compress_files": "tar_command",
+            "extract_archive": "tar_command",
+            "organize_files": "mv_command",
+            "rename_files": "mv_command",
+        }
+        cmd = cmd_map.get(action.skill, action.skill)
+        return [{"action": cmd, "params": action.args}]
+    return []
 
 
 def handle(user_input: str) -> bool:
-    t0 = time.time()
-    mp = model_path()
-    router_source = "rule"
-    classification = None
-    model_raw: dict | None = None
-    if mp:
-        slm_result = model_router_fn(user_input, mp)
-        if slm_result is not None:
-            router_source = "slm"
-            classification = slm_result.pop("_classification", None) if isinstance(slm_result, dict) else None
-            raw = slm_result
-    if router_source != "slm":
-        raw = route_with_rules(user_input)
-
-    model_raw = raw
-
-    action, err = parse_action(raw)
-    if err:
-        console.print(f"[red]오류: {err}[/red]")
-        log_entry(user_input=user_input, router=router_source, classification=classification)
-        if DEV_MODE:
-            _write_trace({
-                "ts": datetime.now().isoformat(timespec="milliseconds"),
-                "user_input": user_input,
-                "router": router_source,
-                "classification": classification,
-                "model_raw": model_raw,
-                "error": err,
-                "duration_ms": int((time.time() - t0) * 1000),
-            })
+    actions = _parse_nl(user_input)
+    if not actions:
+        console.print("[yellow]요청을 이해하지 못했습니다. 다른 방식으로 다시 입력해보세요.[/yellow]")
         return True
 
-    ok, reason = validate_action(action)
-    if not ok:
-        console.print(f"[red]차단됨: {reason}[/red]")
-        log_entry(user_input=user_input, router=router_source, classification=classification, action=action.action if action else None)
-        if DEV_MODE:
-            _write_trace({
-                "ts": datetime.now().isoformat(timespec="milliseconds"),
-                "user_input": user_input,
-                "router": router_source,
-                "classification": classification,
-                "model_raw": model_raw,
-                "action": action.action if action else None,
-                "skill": action.skill if action else None,
-                "blocked": True,
-                "block_reason": reason,
-                "duration_ms": int((time.time() - t0) * 1000),
-            })
-        return True
+    for action_def in actions:
+        action = action_def["action"]
+        params = action_def["params"]
+        cmd_name = action.replace("_command", "")
 
-    result = execute_action(action, confirmed=False)
-    log_entry(user_input=user_input, router=router_source, classification=classification, action=action.action if action else None, skill=action.skill if action else None, args=action.args if action and action.args else None, risk=action.risk if action else None, result_type=result.get("type"), message=result.get("message"))
+        preview_parts = [cmd_name]
+        for k, v in params.items():
+            if v:
+                preview_parts.append(f"{k}={v}")
+        preview = " ".join(preview_parts)
 
-    if DEV_MODE:
-        _write_trace({
-            "ts": datetime.now().isoformat(timespec="milliseconds"),
-            "user_input": user_input,
-            "router": router_source,
-            "classification": classification,
-            "model_raw": model_raw,
-            "action": action.action if action else None,
-            "skill": action.skill if action else None,
-            "args": action.args if action and action.args else None,
-            "risk": action.risk if action else None,
-            "result_type": result.get("type"),
-            "message": result.get("message"),
-            "duration_ms": int((time.time() - t0) * 1000),
-        })
+        console.print(f"\n[bold cyan]🔍 실행:[/bold cyan] {preview}")
 
-    result_type = result.get("type")
-
-    if result_type == EXECUTOR_RESULT_REFUSED:
-        console.print(f"[yellow]{result['message']}[/yellow]")
-        return True
-
-    if result_type == EXECUTOR_RESULT_CLARIFICATION:
-        console.print(f"[cyan]{result['message']}[/cyan]")
-        return True
-
-    if result.get("message"):
-        console.print(f"[green]{result['message']}[/green]")
-
-    if result_type == EXECUTOR_RESULT_OK and result.get("data"):
-        _display_result(action.skill if action else "", result["data"])
-
-    if result_type == EXECUTOR_RESULT_NEEDS_CONFIRMATION:
-        data = result.get("data") or {}
-
-        plan_items = (
-            data.get("plan")
-            or data.get("entries")
-            or data.get("results")
-            or data.get("lines")
-            or data.get("files")
-            or []
-        )
-
-        if plan_items:
-            console.print()
-            for item in plan_items[:20]:
-                if isinstance(item, dict):
-                    label = (
-                        item.get("name") or
-                        item.get("file") or
-                        item.get("path") or
-                        item.get("from", "") +
-                        (" -> " + item.get("to", "") if item.get("to") else "") or
-                        str(item)
-                    )
-                    console.print(f"  [dim]•[/dim] {label}")
-                elif isinstance(item, str):
-                    console.print(f"  [dim]•[/dim] {item}")
-                else:
-                    console.print(f"  [dim]•[/dim] {item}")
-
-            if len(plan_items) > 20:
-                console.print(f"  [dim]... 외 {len(plan_items) - 20}개[/dim]")
-        elif data:
-            entries = data.get("entries", [])
-            if entries:
-                console.print()
-                for e in entries[:20]:
-                    console.print(f"  [dim]•[/dim] {e['name']}")
-                if len(entries) > 20:
-                    console.print(f"  [dim]... 외 {len(entries) - 20}개[/dim]")
-
-        answer = typer.prompt("\n실행할까요?", default="n")
-        if answer.lower() not in ("y", "yes", "네", "응", "예"):
-            console.print("[yellow]취소했습니다.[/yellow]")
+        result = execute_single_step(action, params)
+        if not result["success"]:
+            console.print(f"[red]⛔ {result.get('error', '알 수 없는 오류')}[/red]")
             return True
 
-        confirmed_result = execute_action(action, confirmed=True)
-        if confirmed_result.get("message"):
-            console.print(f"[green]{confirmed_result['message']}[/green]")
+        cmd_result = result["result"]
+        if cmd_result.stdout:
+            console.print(cmd_result.stdout[:2000])
+        if cmd_result.stderr:
+            console.print(f"[red]{cmd_result.stderr[:500]}[/red]")
 
-        if confirmed_result.get("data"):
-            _display_result(
-                action.skill if action else "",
-                confirmed_result["data"],
-            )
-
-        if DEV_MODE:
-            confirmed_data = confirmed_result.get("data") or {}
-            _write_trace({
-                "ts": datetime.now().isoformat(timespec="milliseconds"),
-                "user_input": user_input,
-                "router": router_source,
-                "classification": classification,
-                "model_raw": model_raw,
-                "action": action.action if action else None,
-                "skill": action.skill if action else None,
-                "args": action.args if action and action.args else None,
-                "risk": action.risk if action else None,
-                "result_type": confirmed_result.get("type"),
-                "message": confirmed_result.get("message"),
-                "confirmed": True,
-                "duration_ms": int((time.time() - t0) * 1000),
-            })
-
+    console.print("[green]✅ 완료[/green]")
     return True
-
-
-def _display_result(skill_name: str, data: dict) -> None:
-    if skill_name == "list_files":
-        entries = data.get("entries", [])
-        if not entries:
-            return
-        table = Table(show_header=True)
-        table.add_column("이름", style="cyan")
-        if "size" in entries[0]:
-            table.add_column("크기", justify="right")
-            table.add_column("종류")
-        for e in entries:
-            if "size" in e:
-                size = e["size"]
-                size_str = (
-                    f"{size / 1024:.1f}KB" if size > 1024
-                    else f"{size}B" if size >= 0
-                    else "?"
-                )
-                kind = "디렉토리" if e.get("is_dir") else "파일"
-                table.add_row(e["name"], size_str, kind)
-            else:
-                table.add_row(e["name"])
-        console.print(table)
-
-    elif skill_name == "read_file":
-        lines = data.get("lines", [])
-        if not lines:
-            return
-        for i, line in enumerate(lines, 1):
-            console.print(f"{i:>4} {line}", markup=False)
-
-    elif skill_name == "search_text":
-        results = data.get("results", [])
-        if not results:
-            return
-        for r in results:
-            console.print(
-                f"[dim]{r['file']}:{r['line']}[/dim]  {r['content']}",
-                markup=False,
-            )
-
-    elif skill_name == "find_large_files":
-        files = data.get("files", [])
-        if not files:
-            return
-        table = Table(show_header=True)
-        table.add_column("파일", style="cyan")
-        table.add_column("크기", justify="right")
-        for f in files:
-            table.add_row(f["path"], f"{f['size_mb']}MB")
-        console.print(table)
-
-    elif skill_name == "organize_files":
-        plan = data.get("plan", [])
-        if not plan:
-            return
-        table = Table(show_header=True)
-        table.add_column("이동 전", style="cyan")
-        table.add_column("이동 후")
-        for item in plan[:20]:
-            table.add_row(item.get("from", ""), item.get("to", ""))
-        if len(plan) > 20:
-            table.add_row(f"... 외 {len(plan) - 20}개", "")
-        console.print(table)
-
-    elif skill_name == "rename_files":
-        plan = data.get("plan", [])
-        if not plan:
-            return
-        table = Table(show_header=True)
-        table.add_column("변경 전", style="cyan")
-        table.add_column("변경 후")
-        for item in plan[:20]:
-            table.add_row(item.get("from", ""), item.get("to", ""))
-        if len(plan) > 20:
-            table.add_row(f"... 외 {len(plan) - 20}개", "")
-        console.print(table)
-
-    elif skill_name == "compress_files":
-        console.print(f"[dim]출력: {data.get('output', '')}[/dim]")
-
-    elif skill_name == "extract_archive":
-        console.print(f"[dim]대상: {data.get('target_dir', '')}[/dim]")
 
 
 @app.command()
@@ -355,96 +133,40 @@ def run(request: list[str] = typer.Argument(None)):
 @app.command()
 def undo():
     """Undo the most recent reversible operation."""
-    entry = get_latest()
-    if not entry:
+    if undo_last():
+        console.print("[green]마지막 작업을 되돌렸습니다.[/green]")
+    else:
         console.print("[yellow]취소 가능한 작업이 없습니다.[/yellow]")
-        return
-
-    undo_data = entry.get("undo", {})
-    items = undo_data.get("items", [])
-    skill = entry.get("skill", "unknown")
-    op_id = entry.get("operation_id", "")
-
-    console.print("[bold]최근 실행 취소 가능한 작업:[/bold]")
-    console.print(f"  {skill} ({op_id}) — {len(items)}개 파일")
-
-    for item in items[:10]:
-        console.print(f"  [dim]•[/dim] {item.get('from', '')}")
-
-    if len(items) > 10:
-        console.print(f"  [dim]... 외 {len(items) - 10}개[/dim]")
-
-    answer = typer.prompt("\n되돌릴까요?", default="n")
-    if answer.lower() not in ("y", "yes", "네", "응", "예"):
-        console.print("[yellow]취소했습니다.[/yellow]")
-        return
-
-    _execute_undo(entry)
-    pop_latest()
-    console.print("[green]작업을 되돌렸습니다.[/green]")
-
-
-def _execute_undo(entry: dict):
-    import shutil
-    from pathlib import Path
-
-    undo_data = entry.get("undo", {})
-    undo_type = undo_data.get("type", "")
-    items = undo_data.get("items", [])
-
-    if undo_type == "move_files_back":
-        for item in items:
-            src = Path(item["from"]).expanduser()
-            dst = Path(item["to"]).expanduser()
-            if src.exists():
-                dst.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(src), str(dst))
-
-    elif undo_type == "delete_archive":
-        for item in items:
-            path = Path(item.get("path", "")).expanduser()
-            if path.exists():
-                path.unlink()
-
-    elif undo_type == "delete_files":
-        for item in items:
-            path = Path(item.get("path", "")).expanduser()
-            if path.exists():
-                if path.is_dir():
-                    shutil.rmtree(str(path))
-                else:
-                    path.unlink()
 
 
 @app.command()
-def log(limit: int = typer.Option(20, "--limit", "-l", help="Number of recent entries")):
-    """Show recent session log."""
-    entries = get_log_entries(limit)
-    if not entries:
-        console.print("[yellow]로그가 없습니다.[/yellow]")
+def trash_list():
+    """List files in the trash."""
+    items = undo_trash_list()
+    if not items:
+        console.print("[yellow]휴지통이 비어 있습니다.[/yellow]")
         return
 
     table = Table(show_header=True)
-    table.add_column("시간")
-    table.add_column("라우터")
-    table.add_column("분류")
-    table.add_column("액션")
-    table.add_column("스킬")
-    table.add_column("결과")
-    table.add_column("메시지")
-
-    for e in reversed(entries):
-        router_str = "[cyan]SLM[/cyan]" if e.get("router") == "slm" else "[dim]rule[/dim]"
-        table.add_row(
-            e.get("ts", "")[-8:],
-            router_str,
-            e.get("classification") or "-",
-            e.get("action") or "-",
-            e.get("skill") or "-",
-            e.get("result") or "-",
-            (e.get("message") or "")[:30],
-        )
+    table.add_column("ID")
+    table.add_column("파일")
+    table.add_column("경로")
+    seen = set()
+    for item in items:
+        key = item["id"]
+        if key not in seen:
+            table.add_row(item["id"][:8], item["original_name"], item["trash_path"])
+            seen.add(key)
     console.print(table)
+
+
+@app.command()
+def trash_restore(id: str = typer.Argument(..., help="Trash item ID to restore")):
+    """Restore a file from trash by ID."""
+    if undo_trash_restore(id):
+        console.print(f"[green]{id} 항목을 복원했습니다.[/green]")
+    else:
+        console.print(f"[red]{id} 항목을 찾을 수 없습니다.[/red]")
 
 
 @model_app.command()
