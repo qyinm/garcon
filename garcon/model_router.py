@@ -55,11 +55,39 @@ CLASS_TO_SKILL: dict[str, dict[str, Any]] = {
 }
 
 
-def _post_process_classification(text: str, classified: str) -> str:
+CLASS_KEYWORDS = {
+    "list": ["목록", "리스트", "파일", "ls", "보여줘", "보기", "찾기", "뭐", "알려줘", "파일들"],
+    "read": ["읽", "내용", "열", "cat", "보기"],
+    "search": ["찾", "검색", "포함", "grep", "search", "log"],
+    "organize": ["정리", "분류", "종류"],
+    "rename": ["이름", "rename", "변경", "바꿔"],
+    "compress": ["압축", "zip", "tar", "compress"],
+    "extract": ["압축 풀", "압축해제", "해제", "unzip", "extract", "추출", "풀어"],
+    "refuse": ["삭제", "지우", "제거", "rm", "del", "sudo", "포맷", "format"],
+    "finish": ["종료", "그만", "끝", "exit", "quit", "bye", "꺼줘"],
+    "greeting": ["안녕", "헬로", "hi", "hello", "시작", "인사"],
+    "other": ["도움", "설정", "help", "설명"],
+}
+
+
+def _validate_classification(text: str, classified: str) -> str | None:
+    text_lower = text.strip().lower()
+    if classified not in CLASS_KEYWORDS:
+        return None
+    for kw in CLASS_KEYWORDS[classified]:
+        if kw in text_lower:
+            return classified
+    return None
+
+
+def _post_process_classification(text: str, classified: str) -> str | None:
     if classified == "read":
         if _match_any(text, ["목록", "리스트"]):
             return "list"
-    return classified
+    validated = _validate_classification(text, classified)
+    if validated is None:
+        return None
+    return validated
 
 
 def _build_action(text: str, classified: str) -> dict | None:
@@ -202,8 +230,10 @@ class ModelRouter:
         if not raw:
             return None
 
-        raw = _post_process_classification(user_input, raw)
-        return _build_action(user_input, raw)
+        classified = _post_process_classification(user_input, raw)
+        if classified is None:
+            return None
+        return _build_action(user_input, classified)
 
 
 _model_router_instance: ModelRouter | None = None
