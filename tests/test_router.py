@@ -74,22 +74,41 @@ def test_organize_files():
     assert result["requires_confirmation"] is True
 
 
-def test_rename_files():
+def test_rename_files_without_pattern_asks_clarification():
     result = route_with_rules("파일 이름 변경해줘")
+    assert result["action"] == "ask_clarification"
+
+
+def test_rename_files_with_pattern():
+    result = route_with_rules('파일 이름 변경해줘 ".txt → .md"')
     assert result["action"] == "use_skill"
     assert result["skill"] == "rename_files"
+    assert result["args"]["pattern"] == ".txt"
+    assert result["args"]["replacement"] == ".md"
 
 
-def test_compress_files():
+def test_compress_files_without_filename_asks_clarification():
     result = route_with_rules("파일 압축해줘")
+    assert result["action"] == "ask_clarification"
+
+
+def test_compress_files_with_filename():
+    result = route_with_rules("압축해 test.txt")
     assert result["action"] == "use_skill"
     assert result["skill"] == "compress_files"
+    assert "test.txt" in result["args"]["paths"]
 
 
-def test_extract_archive():
+def test_extract_archive_without_filename_asks_clarification():
     result = route_with_rules("압축 풀어줘")
+    assert result["action"] == "ask_clarification"
+
+
+def test_extract_archive_with_filename():
+    result = route_with_rules("압축 풀어 archive.zip")
     assert result["action"] == "use_skill"
     assert result["skill"] == "extract_archive"
+    assert "archive.zip" in result["args"]["archive"]
 
 
 def test_search_with_extension():

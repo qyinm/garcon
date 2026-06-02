@@ -80,37 +80,56 @@ def route_with_rules(user_input: str) -> dict:
         "파일명 변경", "파일명 바꿔",
     ]):
         source = _extract_path(text) or "."
+        pattern = _extract_rename_pattern(text)
+        replacement = _extract_rename_replacement(text)
+        if pattern:
+            return {
+                "action": "use_skill",
+                "skill": "rename_files",
+                "args": {
+                    "source_dir": source,
+                    "pattern": pattern,
+                    "replacement": replacement,
+                },
+                "risk": "medium",
+                "requires_confirmation": True,
+                "message": f"{pattern}을(를) {replacement}(으)로 변경합니다.",
+            }
         return {
-            "action": "use_skill",
-            "skill": "rename_files",
-            "args": {
-                "source_dir": source,
-                "pattern": "",
-                "replacement": "",
-            },
-            "risk": "medium",
-            "requires_confirmation": True,
-            "message": "파일 이름 변경을 시작합니다.",
+            "action": "ask_clarification",
+            "message": "어떤 패턴으로 변경할까요? (예: '.txt → .md')",
         }
 
-    if _match_any(text, ["zip", "tar", "압축해", "압축 하"]):
-        return {
-            "action": "use_skill",
-            "skill": "compress_files",
-            "args": {"paths": [], "output": ""},
-            "risk": "medium",
-            "requires_confirmation": True,
-            "message": "파일 압축을 시작합니다.",
-        }
-
-    if _match_any(text, ["압축 풀어", "압축 해제", "압축풀기", "extract", "unzip"]):
+    if _match_any(text, ["압축 풀어", "압축 해제", "압축풀기", "압축풀", "extract", "unzip"]):
+        filename = _extract_filename_from_input(text)
+        if not filename:
+            return {
+                "action": "ask_clarification",
+                "message": "어떤 파일의 압축을 풀까요? 압축 파일 이름을 알려주세요.",
+            }
         return {
             "action": "use_skill",
             "skill": "extract_archive",
-            "args": {"archive": "", "target_dir": "."},
+            "args": {"archive": filename, "target_dir": "."},
             "risk": "medium",
             "requires_confirmation": True,
-            "message": "압축 해제를 시작합니다.",
+            "message": f"{filename}의 압축을 해제합니다.",
+        }
+
+    if _match_any(text, ["zip", "tar", "압축해", "압축 하", "compress"]):
+        filename = _extract_filename_from_input(text)
+        if not filename:
+            return {
+                "action": "ask_clarification",
+                "message": "어떤 파일을 압축할까요? 파일 이름을 알려주세요.",
+            }
+        return {
+            "action": "use_skill",
+            "skill": "compress_files",
+            "args": {"paths": [filename], "output": f"{filename}.zip"},
+            "risk": "medium",
+            "requires_confirmation": True,
+            "message": f"{filename}을 zip으로 압축합니다.",
         }
 
     list_patterns = [
@@ -296,6 +315,60 @@ def _extract_query(text: str) -> str | None:
         return m.group(1)
 
     return None
+
+
+def _extract_filename_from_input(text: str) -> str | None:
+    import re
+
+    m = re.search(r"[\"']([^\"']+)[\"']", text)
+    if m:
+        return m.group(1)
+
+    words = text.split()
+    for w in words:
+        w_clean = w.strip(".,!?")
+        if "." in w_clean and not w_clean.startswith(("-", "–", "—")):
+            return w_clean
+
+    return None
+
+
+def _extract_rename_pattern(text: str) -> str | None:
+    import re
+
+    m = re.search(r"[\"']([^\"']+)[\"']", text)
+    if m:
+        parts = m.group(1).split("→")
+        if len(parts) >= 1:
+            return parts[0].strip()
+        return m.group(1)
+
+    m = re.search(r"(\.[a-zA-Z0-9]+)\s*(?:→|->|에서|을|를)", text)
+    if m:
+        return m.group(1).strip()
+
+    return None
+
+
+def _extract_rename_replacement(text: str) -> str | None:
+    import re
+
+    m = re.search(r"[\"']([^\"']+)[\"']", text)
+    if m:
+        parts = m.group(1).split("→")
+        if len(parts) >= 2:
+            return parts[1].strip()
+        return ""
+
+    m = re.search(r"(?:→|->)\s*(\S+)", text)
+    if m:
+        return m.group(1).strip()
+
+    m = re.search(r"(?:으로|로)\s*(\S+)", text)
+    if m:
+        return m.group(1).strip()
+
+    return ""
 
 
 def _extract_extensions(text: str) -> list[str] | None:
