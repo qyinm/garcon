@@ -1,4 +1,4 @@
-from garcon.parser import normalize_path, normalize_args, parse_action
+from garcon.parser import normalize_args, normalize_path, parse_action
 
 
 def test_normalize_path():
@@ -39,7 +39,10 @@ def test_parse_action_valid_dict():
 
 
 def test_parse_action_valid_json():
-    raw = '{"action": "use_skill", "skill": "list_files", "args": {"path": "."}, "risk": "low"}'
+    raw = (
+        '{"action": "use_skill", "skill": "list_files",'
+        ' "args": {"path": "."}, "risk": "low"}'
+    )
     action, err = parse_action(raw)
     assert err is None
     assert action is not None

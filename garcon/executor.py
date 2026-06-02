@@ -1,12 +1,23 @@
 from garcon.schema import GarconAction
+from garcon.skills.compress_files import CompressFilesSkill
+from garcon.skills.extract_archive import ExtractArchiveSkill
+from garcon.skills.find_large_files import FindLargeFilesSkill
 from garcon.skills.list_files import ListFilesSkill
+from garcon.skills.organize_files import OrganizeFilesSkill
 from garcon.skills.read_file import ReadFileSkill
+from garcon.skills.rename_files import RenameFilesSkill
 from garcon.skills.search_text import SearchTextSkill
+from garcon.undo import record_undo
 
 SKILLS = {
     "list_files": ListFilesSkill(),
     "read_file": ReadFileSkill(),
     "search_text": SearchTextSkill(),
+    "find_large_files": FindLargeFilesSkill(),
+    "organize_files": OrganizeFilesSkill(),
+    "rename_files": RenameFilesSkill(),
+    "compress_files": CompressFilesSkill(),
+    "extract_archive": ExtractArchiveSkill(),
 }
 
 EXECUTOR_RESULT_OK = "ok"
@@ -67,6 +78,9 @@ def execute_action(
         }
 
     result = skill.execute(action.args)
+
+    if result.ok and result.undo:
+        record_undo(action.skill, result.undo)
 
     return {
         "type": EXECUTOR_RESULT_OK if result.ok else EXECUTOR_RESULT_REFUSED,

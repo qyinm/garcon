@@ -1,5 +1,3 @@
-from garcon.schema import GarconAction
-
 
 def route_with_rules(user_input: str) -> dict:
     text = user_input.strip().lower()
@@ -13,7 +11,10 @@ def route_with_rules(user_input: str) -> dict:
     if _match(text, ["안녕", "헬로", "hi", "hello", "시작"]):
         return {
             "action": "show_plan",
-            "message": "garcon이 준비됐어요. 파일 목록, 읽기, 검색을 도와드릴 수 있어요.",
+            "message": (
+                "garcon이 준비됐어요. 파일 목록, 읽기, 검색, 정리를"
+                " 도와드릴 수 있어요."
+            ),
         }
 
     if _match(text, ["종료", "끝", "그만", "꺼줘", "exit", "quit", "bye"]):
@@ -30,6 +31,86 @@ def route_with_rules(user_input: str) -> dict:
         return {
             "action": "refuse",
             "message": "위험한 요청은 실행할 수 없습니다.",
+        }
+
+    if _match_any(text, [
+        "용량", "큰 파일", "큰파일",
+        "크기", "disk", "disk usage",
+        "공간", "space",
+    ]):
+        path = _extract_path(text) or "."
+        return {
+            "action": "use_skill",
+            "skill": "find_large_files",
+            "args": {"path": path, "limit": 20, "min_size_mb": 100},
+            "risk": "low",
+            "requires_confirmation": False,
+            "message": "큰 파일을 검색합니다.",
+        }
+
+    if _match_any(text, ["정리", "분류", "종류별"]):
+        source = _extract_path(text) or "."
+        return {
+            "action": "use_skill",
+            "skill": "organize_files",
+            "args": {
+                "source_dir": source,
+                "rules": [
+                    {
+                        "extensions": ["pdf"],
+                        "target_dir": _join_path(source, "PDFs"),
+                    },
+                    {
+                        "extensions": ["png", "jpg", "jpeg", "webp"],
+                        "target_dir": _join_path(source, "Images"),
+                    },
+                    {
+                        "extensions": ["zip", "tar", "gz", "bz2"],
+                        "target_dir": _join_path(source, "Archives"),
+                    },
+                ],
+            },
+            "risk": "medium",
+            "requires_confirmation": True,
+            "message": f"{source}를 확장자별로 정리합니다.",
+        }
+
+    if _match_any(text, [
+        "이름 변경", "이름 바꿔", "rename",
+        "파일명 변경", "파일명 바꿔",
+    ]):
+        source = _extract_path(text) or "."
+        return {
+            "action": "use_skill",
+            "skill": "rename_files",
+            "args": {
+                "source_dir": source,
+                "pattern": "",
+                "replacement": "",
+            },
+            "risk": "medium",
+            "requires_confirmation": True,
+            "message": "파일 이름 변경을 시작합니다.",
+        }
+
+    if _match_any(text, ["zip", "tar", "압축해", "압축 하"]):
+        return {
+            "action": "use_skill",
+            "skill": "compress_files",
+            "args": {"paths": [], "output": ""},
+            "risk": "medium",
+            "requires_confirmation": True,
+            "message": "파일 압축을 시작합니다.",
+        }
+
+    if _match_any(text, ["압축 풀어", "압축 해제", "압축풀기", "extract", "unzip"]):
+        return {
+            "action": "use_skill",
+            "skill": "extract_archive",
+            "args": {"archive": "", "target_dir": "."},
+            "risk": "medium",
+            "requires_confirmation": True,
+            "message": "압축 해제를 시작합니다.",
         }
 
     list_patterns = [
@@ -57,7 +138,7 @@ def route_with_rules(user_input: str) -> dict:
             "args": args,
             "risk": "low",
             "requires_confirmation": False,
-            "message": f"파일 목록을 표시합니다." if not path
+            "message": "파일 목록을 표시합니다." if not path
             else f"{path}의 파일 목록을 표시합니다.",
         }
 
@@ -112,25 +193,11 @@ def route_with_rules(user_input: str) -> dict:
             "message": f"'{query}'를 검색합니다.",
         }
 
-    용량_patterns = [
-        "용량", "큰 파일", "큰파일",
-        "크기", "disk", "disk usage",
-        "공간", "space",
-    ]
-    if _match_any(text, 용량_patterns):
-        return {
-            "action": "use_skill",
-            "skill": "find_large_files",
-            "args": {"path": ".", "limit": 20, "min_size_mb": 100},
-            "risk": "low",
-            "requires_confirmation": False,
-            "message": "큰 파일을 검색합니다. (아직 미구현 — v1에서 추가 예정)",
-        }
-
     return {
         "action": "ask_clarification",
         "message": "어떤 작업을 할지 조금 더 구체적으로 알려주세요.\n\n"
-        "예: '파일 목록 보여줘', '파일 읽어줘', 'log에서 error 찾아줘'",
+        "예: '파일 목록 보여줘', '파일 읽어줘', 'log에서 error 찾아줘', "
+        "'다운로드 폴더 정리해줘'",
     }
 
 
@@ -143,6 +210,12 @@ def _match_any(text: str, keywords: list[str]) -> bool:
         if kw in text:
             return True
     return False
+
+
+def _join_path(base: str, sub: str) -> str:
+    if base in (".", "~"):
+        return f"{base}/{sub}"
+    return f"{base}/{sub}"
 
 
 def _extract_path(text: str) -> str | None:
@@ -193,7 +266,6 @@ def _extract_path_or_filename(text: str) -> str | None:
 def _extract_query(text: str) -> str | None:
     import re
 
-    # Try quoted strings first
     m = re.search(r"[\"']([^\"']+)[\"']", text)
     if m:
         return m.group(1)
@@ -202,26 +274,25 @@ def _extract_query(text: str) -> str | None:
     if m:
         return m.group(1)
 
-    STOP_WORDS = {"줄", "것", "파일", "파일을", "파일이", "파일의", "내용", "거", "목록", "리스트"}
+    stop_words = {
+        "줄", "것", "파일", "파일을", "파일이", "파일의",
+        "내용", "거", "목록", "리스트",
+    }
 
-    # Try word before 포함된/포함하는/들어간 (Korean: "error 들어간 줄 찾아줘")
     m = re.search(r"(\S+)\s*(?:포함된|포함하는|들어간|들어있는)", text)
-    if m and m.group(1) not in STOP_WORDS:
+    if m and m.group(1) not in stop_words:
         return m.group(1)
 
-    # Try word before 찾아줘/검색/찾기 etc (Korean: "error 찾아줘")
     m = re.search(r"(\S+)\s*(?:찾아줘|찾기|검색|찾아|서치)", text)
-    if m and m.group(1) not in STOP_WORDS:
+    if m and m.group(1) not in stop_words:
         return m.group(1)
 
-    # Try word after 찾아줘/검색/찾기 etc (Korean: "찾아줘 error")
     m = re.search(r"(?:찾아줘|찾기|검색|찾아|서치)\s*(\S+)", text)
-    if m and m.group(1) not in STOP_WORDS:
+    if m and m.group(1) not in stop_words:
         return m.group(1)
 
-    # Try word after 포함된/포함하는/들어간
     m = re.search(r"(?:포함된|포함하는|들어간|들어있는)\s*(\S+)", text)
-    if m and m.group(1) not in STOP_WORDS:
+    if m and m.group(1) not in stop_words:
         return m.group(1)
 
     return None
@@ -230,7 +301,7 @@ def _extract_query(text: str) -> str | None:
 def _extract_extensions(text: str) -> list[str] | None:
     import re
 
-    m = re.search(r"(?:에서|에|에서\s*)(\w+)", text)
+    m = re.search(r"(\w+)(?:에서|에)", text)
     if m:
         ext_text = m.group(1).lower()
         ext_map = {

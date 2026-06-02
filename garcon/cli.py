@@ -1,4 +1,3 @@
-from typing import Optional
 
 import typer
 from rich.console import Console
@@ -14,6 +13,7 @@ from garcon.executor import (
 from garcon.parser import parse_action
 from garcon.router import route_with_rules
 from garcon.safety import validate_action
+from garcon.undo import get_latest, pop_latest
 
 app = typer.Typer(
     name="garcon",
@@ -58,15 +58,28 @@ def handle(user_input: str) -> bool:
     if result_type == EXECUTOR_RESULT_NEEDS_CONFIRMATION:
         data = result.get("data") or {}
 
-        plan_items = (data.get("plan") or data.get("entries") or
-                      data.get("results") or data.get("lines") or [])
+        plan_items = (
+            data.get("plan")
+            or data.get("entries")
+            or data.get("results")
+            or data.get("lines")
+            or data.get("files")
+            or []
+        )
 
         if plan_items:
             console.print()
             for item in plan_items[:20]:
                 if isinstance(item, dict):
-                    name = item.get("name", item.get("file", str(item)))
-                    console.print(f"  [dim]•[/dim] {name}")
+                    label = (
+                        item.get("name") or
+                        item.get("file") or
+                        item.get("path") or
+                        item.get("from", "") +
+                        (" -> " + item.get("to", "") if item.get("to") else "") or
+                        str(item)
+                    )
+                    console.print(f"  [dim]•[/dim] {label}")
                 elif isinstance(item, str):
                     console.print(f"  [dim]•[/dim] {item}")
                 else:
@@ -142,11 +155,57 @@ def _display_result(skill_name: str, data: dict) -> None:
                 markup=False,
             )
 
+    elif skill_name == "find_large_files":
+        files = data.get("files", [])
+        if not files:
+            return
+        table = Table(show_header=True)
+        table.add_column("파일", style="cyan")
+        table.add_column("크기", justify="right")
+        for f in files:
+            table.add_row(f["path"], f"{f['size_mb']}MB")
+        console.print(table)
+
+    elif skill_name == "organize_files":
+        plan = data.get("plan", [])
+        if not plan:
+            return
+        table = Table(show_header=True)
+        table.add_column("이동 전", style="cyan")
+        table.add_column("이동 후")
+        for item in plan[:20]:
+            table.add_row(item.get("from", ""), item.get("to", ""))
+        if len(plan) > 20:
+            table.add_row(f"... 외 {len(plan) - 20}개", "")
+        console.print(table)
+
+    elif skill_name == "rename_files":
+        plan = data.get("plan", [])
+        if not plan:
+            return
+        table = Table(show_header=True)
+        table.add_column("변경 전", style="cyan")
+        table.add_column("변경 후")
+        for item in plan[:20]:
+            table.add_row(item.get("from", ""), item.get("to", ""))
+        if len(plan) > 20:
+            table.add_row(f"... 외 {len(plan) - 20}개", "")
+        console.print(table)
+
+    elif skill_name == "compress_files":
+        console.print(f"[dim]출력: {data.get('output', '')}[/dim]")
+
+    elif skill_name == "extract_archive":
+        console.print(f"[dim]대상: {data.get('target_dir', '')}[/dim]")
+
 
 @app.command()
 def chat():
     """Start interactive chat mode."""
-    console.print("[bold cyan]garcon[/bold cyan] — 파일 목록, 읽기, 검색을 도와드려요.")
+    console.print(
+        "[bold cyan]garcon[/bold cyan]"
+        " — 파일 목록, 읽기, 검색, 정리를 도와드려요."
+    )
     console.print("종료하려면 [bold]exit[/bold] 또는 [bold]quit[/bold] 입력\n")
 
     while True:
@@ -172,6 +231,70 @@ def run(request: list[str] = typer.Argument(None)):
 
     user_input = " ".join(request)
     handle(user_input)
+
+
+@app.command()
+def undo():
+    """Undo the most recent reversible operation."""
+    entry = get_latest()
+    if not entry:
+        console.print("[yellow]취소 가능한 작업이 없습니다.[/yellow]")
+        return
+
+    undo_data = entry.get("undo", {})
+    items = undo_data.get("items", [])
+    skill = entry.get("skill", "unknown")
+    op_id = entry.get("operation_id", "")
+
+    console.print("[bold]최근 실행 취소 가능한 작업:[/bold]")
+    console.print(f"  {skill} ({op_id}) — {len(items)}개 파일")
+
+    for item in items[:10]:
+        console.print(f"  [dim]•[/dim] {item.get('from', '')}")
+
+    if len(items) > 10:
+        console.print(f"  [dim]... 외 {len(items) - 10}개[/dim]")
+
+    answer = typer.prompt("\n되돌릴까요?", default="n")
+    if answer.lower() not in ("y", "yes", "네", "응", "예"):
+        console.print("[yellow]취소했습니다.[/yellow]")
+        return
+
+    _execute_undo(entry)
+    pop_latest()
+    console.print("[green]작업을 되돌렸습니다.[/green]")
+
+
+def _execute_undo(entry: dict):
+    import shutil
+    from pathlib import Path
+
+    undo_data = entry.get("undo", {})
+    undo_type = undo_data.get("type", "")
+    items = undo_data.get("items", [])
+
+    if undo_type == "move_files_back":
+        for item in items:
+            src = Path(item["from"]).expanduser()
+            dst = Path(item["to"]).expanduser()
+            if src.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(str(src), str(dst))
+
+    elif undo_type == "delete_archive":
+        for item in items:
+            path = Path(item.get("path", "")).expanduser()
+            if path.exists():
+                path.unlink()
+
+    elif undo_type == "delete_files":
+        for item in items:
+            path = Path(item.get("path", "")).expanduser()
+            if path.exists():
+                if path.is_dir():
+                    shutil.rmtree(str(path))
+                else:
+                    path.unlink()
 
 
 if __name__ == "__main__":

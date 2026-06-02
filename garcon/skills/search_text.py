@@ -67,9 +67,11 @@ class SearchTextSkill(Skill):
 
         results: list[dict] = []
 
-        SKIP_DIRS = {".venv", "venv", ".git", "__pycache__", "node_modules",
-                     ".egg-info", "dist", "build", ".ruff_cache", ".pytest_cache",
-                     ".mypy_cache", ".Trash"}
+        skip_dirs = {
+            ".venv", "venv", ".git", "__pycache__", "node_modules",
+            ".egg-info", "dist", "build", ".ruff_cache", ".pytest_cache",
+            ".mypy_cache", ".Trash",
+        }
 
         if path.is_file():
             targets = [path]
@@ -80,7 +82,7 @@ class SearchTextSkill(Skill):
                     rel = p.relative_to(path)
                     if any(part.startswith(".") for part in rel.parts):
                         continue
-                    if p.parent.name in SKIP_DIRS:
+                    if p.parent.name in skip_dirs:
                         continue
                     targets.append(p)
             except Exception:

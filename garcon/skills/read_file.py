@@ -46,7 +46,11 @@ class ReadFileSkill(Skill):
         if file_size > MAX_FILE_SIZE:
             return SkillResult(
                 ok=False,
-                message=f"파일이 너무 큽니다 ({file_size / 1024 / 1024:.1f}MB). 최대 10MB까지 읽을 수 있습니다.",
+                message=(
+                    f"파일이 너무 큽니다"
+                    f" ({file_size / 1024 / 1024:.1f}MB)."
+                    " 최대 10MB까지 읽을 수 있습니다."
+                ),
             )
 
         try:

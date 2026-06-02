@@ -27,7 +27,9 @@ def test_validate_action_empty_skill():
 
 
 def test_validate_action_high_risk_sets_confirmation():
-    action = GarconAction(action="use_skill", skill="organize_files", args={"source_dir": "~"})
+    action = GarconAction(
+        action="use_skill", skill="organize_files", args={"source_dir": "~"}
+    )
     ok, reason = validate_action(action)
     assert ok is True
     assert action.requires_confirmation is True
