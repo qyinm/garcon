@@ -24,6 +24,7 @@ from garcon.model_manager import (
     model_size,
     remove_model,
 )
+from garcon.model_router import router as model_router_fn
 from garcon.parser import parse_action
 from garcon.router import route_with_rules
 from garcon.safety import validate_action
@@ -41,7 +42,15 @@ console = Console()
 
 
 def handle(user_input: str) -> bool:
-    raw = route_with_rules(user_input)
+    mp = model_path()
+    if mp:
+        result = model_router_fn(user_input, mp)
+        if result is not None:
+            raw = result
+        else:
+            raw = route_with_rules(user_input)
+    else:
+        raw = route_with_rules(user_input)
 
     action, err = parse_action(raw)
     if err:

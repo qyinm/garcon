@@ -50,6 +50,13 @@ def execute_action(
             "message": action.message or "작업을 완료했습니다.",
         }
 
+    if action.action == "show_plan":
+        return {
+            "type": EXECUTOR_RESULT_OK,
+            "ok": True,
+            "message": action.message or "garcon이 준비됐어요.",
+        }
+
     if action.action != "use_skill":
         return {
             "type": EXECUTOR_RESULT_OK,
