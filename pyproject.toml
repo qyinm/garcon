@@ -1,7 +1,7 @@
 [project]
 name = "garcon"
 version = "0.1.0"
-description = "Tiny local terminal coworker — routes Korean natural language to safe local skills"
+description = "Tiny local terminal coworker — Korean natural language to safe Linux commands"
 requires-python = ">=3.12"
 dependencies = [
     "typer>=0.15",
@@ -27,6 +27,9 @@ quote-style = "double"
 
 [tool.uv]
 package = true
+
+[tool.setuptools]
+packages = ["garcon"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
