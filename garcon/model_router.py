@@ -170,7 +170,7 @@ class ModelRouter:
 
             self._llm = Llama(
                 model_path=model_path,
-                n_ctx=4096,
+                n_ctx=8192,
                 n_gpu_layers=-1,
                 verbose=False,
             )
