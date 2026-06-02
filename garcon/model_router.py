@@ -80,7 +80,7 @@ def parse_action_sequence(raw_text: str) -> dict | None:
 
 def generate_with_context(context: list[dict], model_path: str) -> dict | None:
     try:
-        from llama_cpp import Llama
+        from llama_cpp import Llama, LlamaGrammar
 
         llm = Llama(
             model_path=model_path,
@@ -96,11 +96,12 @@ def generate_with_context(context: list[dict], model_path: str) -> dict | None:
             if role in ("system", "user", "assistant"):
                 messages.append({"role": role, "content": content})
 
+        grammar = LlamaGrammar.from_string(GBNF_GRAMMAR)
         response = llm.create_chat_completion(
             messages=messages,
             temperature=0.1,
             max_tokens=256,
-            grammar=GBNF_GRAMMAR,
+            grammar=grammar,
         )
 
         raw = response["choices"][0]["message"]["content"]
