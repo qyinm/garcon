@@ -22,6 +22,7 @@ from garcon.model_manager import (
     model_size,
     remove_model,
 )
+from garcon.model_router import router as model_router
 from garcon.undo import TRASH_DIR, undo_last
 from garcon.undo import trash_list as undo_trash_list
 from garcon.undo import trash_restore as undo_trash_restore
@@ -38,59 +39,47 @@ app.add_typer(model_app, name="model")
 console = Console()
 
 
-def _parse_nl(user_input: str) -> list[dict]:
-    from garcon.router import route_with_rules
-
-    raw = route_with_rules(user_input)
-    if not raw or raw.get("action") != "use_skill":
-        return []
-
-    skill = raw.get("skill", "")
-    params = raw.get("args", {})
-
-    cmd_map = {
-        "list_files": "ls_command",
-        "read_file": "cat_command",
-        "search_text": "grep_command",
-        "find_large_files": "find_command",
-        "compress_files": "tar_command",
-        "extract_archive": "tar_command",
-        "organize_files": "mv_command",
-        "rename_files": "mv_command",
-    }
-    cmd = cmd_map.get(skill, skill)
-    return [{"action": cmd, "params": params}]
+def _parse_nl(user_input: str) -> dict | None:
+    mp = model_path()
+    if not mp:
+        return None
+    return model_router(user_input, mp)
 
 
 def handle(user_input: str) -> bool:
-    actions = _parse_nl(user_input)
-    if not actions:
+    result = _parse_nl(user_input)
+    if not result:
         console.print("[yellow]요청을 이해하지 못했습니다. 다른 방식으로 다시 입력해보세요.[/yellow]")
         return True
 
-    for action_def in actions:
-        action = action_def["action"]
-        params = action_def["params"]
-        cmd_name = action.replace("_command", "")
+    action = result.get("action", "")
+    params = result.get("params", {})
 
-        preview_parts = [cmd_name]
-        for k, v in params.items():
-            if v:
-                preview_parts.append(f"{k}={v}")
-        preview = " ".join(preview_parts)
+    if action == "Finish":
+        answer = params.get("final_answer", "")
+        if answer:
+            console.print(f"[cyan]{answer}[/cyan]")
+        return True
 
-        console.print(f"\n[bold cyan]🔍 실행:[/bold cyan] {preview}")
+    cmd_name = action.replace("_command", "")
+    preview_parts = [cmd_name]
+    for k, v in params.items():
+        if v:
+            preview_parts.append(f"{k}={v}")
+    preview = " ".join(preview_parts)
 
-        result = execute_single_step(action, params)
-        if not result["success"]:
-            console.print(f"[red]⛔ {result.get('error', '알 수 없는 오류')}[/red]")
-            return True
+    console.print(f"\n[bold cyan]🔍 실행:[/bold cyan] {preview}")
 
-        cmd_result = result["result"]
-        if cmd_result.stdout:
-            console.print(cmd_result.stdout[:2000])
-        if cmd_result.stderr:
-            console.print(f"[red]{cmd_result.stderr[:500]}[/red]")
+    exec_result = execute_single_step(action, params)
+    if not exec_result["success"]:
+        console.print(f"[red]⛔ {exec_result.get('error', '알 수 없는 오류')}[/red]")
+        return True
+
+    cmd_result = exec_result["result"]
+    if cmd_result.stdout:
+        console.print(cmd_result.stdout[:2000])
+    if cmd_result.stderr:
+        console.print(f"[red]{cmd_result.stderr[:500]}[/red]")
 
     console.print("[green]✅ 완료[/green]")
     return True
