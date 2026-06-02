@@ -7,6 +7,10 @@ dependencies = [
     "typer>=0.15",
     "pydantic>=2.0",
     "rich>=13.0",
+    "huggingface-hub>=1.17.0",
+    "transformers>=4.45",
+    "torch>=2.2",
+    "safetensors>=0.4",
 ]
 
 [project.scripts]
@@ -28,7 +32,16 @@ package = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 
+[project.optional-dependencies]
+model = [
+    "llama-cpp-python>=0.3",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
+]
+
+model = [
+    "llama-cpp-python>=0.3",
 ]

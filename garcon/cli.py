@@ -1,6 +1,12 @@
 
 import typer
 from rich.console import Console
+from rich.progress import (
+    BarColumn,
+    Progress,
+    TextColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 from garcon.executor import (
@@ -9,6 +15,14 @@ from garcon.executor import (
     EXECUTOR_RESULT_OK,
     EXECUTOR_RESULT_REFUSED,
     execute_action,
+)
+from garcon.model_manager import (
+    MODEL_NAME,
+    download_model,
+    is_downloaded,
+    model_path,
+    model_size,
+    remove_model,
 )
 from garcon.parser import parse_action
 from garcon.router import route_with_rules
@@ -20,6 +34,8 @@ app = typer.Typer(
     help="Tiny local terminal coworker",
     no_args_is_help=True,
 )
+model_app = typer.Typer(help="Manage the local SLM model")
+app.add_typer(model_app, name="model")
 
 console = Console()
 
@@ -295,6 +311,61 @@ def _execute_undo(entry: dict):
                     shutil.rmtree(str(path))
                 else:
                     path.unlink()
+
+
+@model_app.command()
+def download():
+    """Download the SLM model (~105 MB)."""
+    if is_downloaded():
+        console.print("[yellow]모델이 이미 다운로드되어 있습니다.[/yellow]")
+        console.print(f"  경로: {model_path()}")
+        return
+
+    console.print(f"[cyan]{MODEL_NAME}[/cyan] 모델을 다운로드합니다...")
+
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("다운로드 중...", total=100)
+
+        def on_progress(pct):
+            progress.update(task, completed=pct)
+
+        download_model(progress_callback=on_progress)
+
+    console.print("[green]완료![/green]")
+    console.print(f"  경로: {model_path()}")
+
+
+@model_app.command()
+def status():
+    """Show model download status."""
+    if is_downloaded():
+        size_mb = model_size() / 1024 / 1024
+        console.print("[green]사용 가능[/green]")
+        console.print(f"  경로: {model_path()}")
+        console.print(f"  크기: {size_mb:.0f} MB")
+    else:
+        console.print("[yellow]모델이 다운로드되지 않았습니다.[/yellow]")
+        console.print("  다음 명령어로 다운로드: [bold]garcon model download[/bold]")
+
+
+@model_app.command()
+def remove():
+    """Remove the downloaded model."""
+    if not is_downloaded():
+        console.print("[yellow]모델 파일이 없습니다.[/yellow]")
+        return
+
+    removed = remove_model()
+    if removed:
+        console.print("[green]모델 파일을 삭제했습니다.[/green]")
+    else:
+        console.print("[red]삭제 실패[/red]")
 
 
 if __name__ == "__main__":
