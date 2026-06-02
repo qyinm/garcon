@@ -1,4 +1,9 @@
 
+import json
+import time
+from datetime import datetime
+from pathlib import Path
+
 import typer
 from rich.console import Console
 from rich.progress import (
@@ -37,17 +42,39 @@ app = typer.Typer(
     name="garcon",
     help="Tiny local terminal coworker",
     no_args_is_help=True,
+    pretty_exceptions_enable=False,
 )
 model_app = typer.Typer(help="Manage the local SLM model")
 app.add_typer(model_app, name="model")
 
 console = Console()
 
+DEV_MODE: bool = False
+
+
+@app.callback(invoke_without_command=True)
+def set_dev_mode(
+    ctx: typer.Context,
+    dev: bool = typer.Option(False, "--dev", help="개발자 모드: 로컬 logs/trace.jsonl에 trace 저장"),
+):
+    global DEV_MODE
+    DEV_MODE = dev
+
+
+def _write_trace(entry: dict):
+    log_dir = Path("logs")
+    log_dir.mkdir(parents=True, exist_ok=True)
+    trace_file = log_dir / "trace.jsonl"
+    with open(trace_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
 
 def handle(user_input: str) -> bool:
+    t0 = time.time()
     mp = model_path()
     router_source = "rule"
     classification = None
+    model_raw: dict | None = None
     if mp:
         slm_result = model_router_fn(user_input, mp)
         if slm_result is not None:
@@ -57,20 +84,61 @@ def handle(user_input: str) -> bool:
     if router_source != "slm":
         raw = route_with_rules(user_input)
 
+    model_raw = raw
+
     action, err = parse_action(raw)
     if err:
         console.print(f"[red]오류: {err}[/red]")
         log_entry(user_input=user_input, router=router_source, classification=classification)
+        if DEV_MODE:
+            _write_trace({
+                "ts": datetime.now().isoformat(timespec="milliseconds"),
+                "user_input": user_input,
+                "router": router_source,
+                "classification": classification,
+                "model_raw": model_raw,
+                "error": err,
+                "duration_ms": int((time.time() - t0) * 1000),
+            })
         return True
 
     ok, reason = validate_action(action)
     if not ok:
         console.print(f"[red]차단됨: {reason}[/red]")
         log_entry(user_input=user_input, router=router_source, classification=classification, action=action.action if action else None)
+        if DEV_MODE:
+            _write_trace({
+                "ts": datetime.now().isoformat(timespec="milliseconds"),
+                "user_input": user_input,
+                "router": router_source,
+                "classification": classification,
+                "model_raw": model_raw,
+                "action": action.action if action else None,
+                "skill": action.skill if action else None,
+                "blocked": True,
+                "block_reason": reason,
+                "duration_ms": int((time.time() - t0) * 1000),
+            })
         return True
 
     result = execute_action(action, confirmed=False)
     log_entry(user_input=user_input, router=router_source, classification=classification, action=action.action if action else None, skill=action.skill if action else None, args=action.args if action and action.args else None, risk=action.risk if action else None, result_type=result.get("type"), message=result.get("message"))
+
+    if DEV_MODE:
+        _write_trace({
+            "ts": datetime.now().isoformat(timespec="milliseconds"),
+            "user_input": user_input,
+            "router": router_source,
+            "classification": classification,
+            "model_raw": model_raw,
+            "action": action.action if action else None,
+            "skill": action.skill if action else None,
+            "args": action.args if action and action.args else None,
+            "risk": action.risk if action else None,
+            "result_type": result.get("type"),
+            "message": result.get("message"),
+            "duration_ms": int((time.time() - t0) * 1000),
+        })
 
     result_type = result.get("type")
 
@@ -143,6 +211,24 @@ def handle(user_input: str) -> bool:
                 action.skill if action else "",
                 confirmed_result["data"],
             )
+
+        if DEV_MODE:
+            confirmed_data = confirmed_result.get("data") or {}
+            _write_trace({
+                "ts": datetime.now().isoformat(timespec="milliseconds"),
+                "user_input": user_input,
+                "router": router_source,
+                "classification": classification,
+                "model_raw": model_raw,
+                "action": action.action if action else None,
+                "skill": action.skill if action else None,
+                "args": action.args if action and action.args else None,
+                "risk": action.risk if action else None,
+                "result_type": confirmed_result.get("type"),
+                "message": confirmed_result.get("message"),
+                "confirmed": True,
+                "duration_ms": int((time.time() - t0) * 1000),
+            })
 
     return True
 
